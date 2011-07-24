@@ -1,0 +1,99 @@
+#!/bin/bash
+#
+#
+#
+### BEGIN INIT INFO
+# Provides:          fetchmail.users
+# Required-Start:    $syslog $network $remote_fs sendmail
+# Should-Start:
+# Required-Stop:     $syslog $network $remote_fs sendmail
+# Should-Stop:
+# Default-Start:     3 5
+# Default-Stop:      0 1 2 6
+# Short-Description: Fetch mails for configured users
+# Description:       Start fetchmail as root and fetch mails for configured users.
+#	You must create configuration file /etc/fetchmailrc first.
+### END INIT INFO
+
+
+
+GROUP=fetchmail
+
+get_home()
+{
+	user=$1
+
+	getent passwd $user | cut -d: -f6
+}
+
+get_users()
+{
+	users=""
+	IFS=,
+	for user in `getent group $GROUP | cut -d: -f4`
+	do
+		users="$users $user"
+	done
+
+	echo $users
+}
+
+show_log()
+{
+	files=""
+	for user in `get_users`
+	do
+		files="$files /var/log/fetchmail-$user.log"
+	done
+	tail -f $files
+}
+
+fetch_start()
+{
+	# for each user in database
+	for user in `get_users` 
+	do
+		log="/var/log/fetchmail-$user.log"
+		touch $log
+		chown $user $log
+		pidfile="/var/run/fetchmail.users/fetchmail-$user.pid"
+		>$pidfile 
+		chown $user $pidfile 
+		rcfile="/home/$user/.fetchmail.rc"
+		# fork a fetchmail daemon
+		sudo -u $user fetchmail --logfile $log --pidfile $pidfile 
+	done
+}
+
+fetch_stop()
+{
+	for user in `get_users`
+	do
+		pidfile="/var/run/fetchmail.users/fetchmail-$user.pid"
+		if [ -f $pidfile ] ; then
+			pid=`cat $pidfile`
+			ps $pid >/dev/null
+			if [ $? -eq 0 ] ; then
+				kill $pid
+			else
+				echo "error: process $pid not running" >&2
+			fi
+		fi
+	done
+}
+
+case "$1" in
+    start)
+	fetch_start
+	;;
+    log)
+	show_log
+	;;
+    stop)
+	fetch_stop
+	;;
+    *)
+	echo "Usage: $0 {start}"
+	exit 1
+	;;
+esac
